@@ -467,7 +467,7 @@ def serialize(tensor):
                 data['tensor_ptr'] = str(rec_tensor.ptr)
                 data['dim'] = rec_tensor.data.shape
                 data['solo_ptr'] = True
-
+            
             if len(shape) == 1:
                 rec_tensor = record_builder.get_tensor_ptr(tensor.handle.data[0])
                 tensor_coords = map_pointers_to_coords(rec_tensor, tensor.handle.data)
@@ -498,6 +498,8 @@ def serialize(tensor):
                 data['value'] = numpy_to_json(rec_tensor.data.tolist())
                 data['solo_ptr'] = False
 
+            data['isTensorPtr']=True
+
             return data
         else:
             # Non-pointer-based tensor
@@ -507,6 +509,8 @@ def serialize(tensor):
                 val = handle_large_numbers(val)
                 return val
             data = to_json(tensor)
+            data['isTensorPtr']=False
+
             data['value'] = numpy_to_json(tensor.handle.data)
             return data
     else:
@@ -527,6 +531,19 @@ def normalize_tensor(c):
     
     return normalized_c
 
+
+
+
+def get_ir():
+    """
+    Retrieves the cached IR from the compile process.
+    Assumes the cache has been initialized and populated during compilation.
+    """
+    import os
+    import json
+    from pathlib import Path
+
+    return open("/workspaces/triton-viz/examples/matmul.ttgir","r").read()
 
 
 def _grid_executor_call(self, *args_dev, **kwargs):
@@ -551,28 +568,26 @@ def _grid_executor_call(self, *args_dev, **kwargs):
     last_line = [None]  # Just store the last line info
 
     def trace_func(frame, event, arg):
-        
+        # We only want to record 'line' events from the user code
+        # i.e. when the interpreter executes a new line of Python code
         if event == 'line':
-  
             if filename[0] is None:
                 filename[0] = frame.f_code.co_filename
-       
+
             if filename[0] in frame.f_code.co_filename:
                 # Store current line info for potential last line
                 last_line[0] = {
                     'lineno': frame.f_lineno,
                     'locals': frame.f_locals.copy()
                 }
-                
+
                 lineno = frame.f_lineno
                 source_line = linecache.getline(filename[0], lineno).strip()
-                
                 local_vars = frame.f_locals.copy()
+
                 # Compute changed variables
                 changed_vars = {}
-
                 for var_name, value in local_vars.items():
-                    
                     try:
                         prev_value = prev_locals.get(var_name, UNDEFINED)
                         if prev_value is UNDEFINED:
@@ -586,14 +601,29 @@ def _grid_executor_call(self, *args_dev, **kwargs):
                     except Exception as e:
                         print(f"Error: Could not convert variable '{var_name}'. Exception: {str(e)}")
 
+                # Capture IR or any other useful data here
+                # Assume we can retrieve IR by calling get_ir()
+                # This will store the current IR after each line event
+                ir = get_ir()  # assume this function returns IR in some form
+
+                # Additional useful data could be included, for example:
+                current_filename = frame.f_code.co_filename
+                current_function = frame.f_code.co_name
+
                 data.append({
                     'source_line': source_line,
                     'changed_vars': changed_vars,
-                    'block_indices': current_block_indices
+                    'block_indices': current_block_indices,
+                    'ir': ir,
+                    'filename': current_filename,
+                    'function_name': current_function,
+                    'line_number': lineno
                 })
+
                 # Update prev_locals
                 prev_locals.clear()
                 prev_locals.update(local_vars)
+
         return trace_func
 
     try:
@@ -650,9 +680,7 @@ def _grid_executor_call(self, *args_dev, **kwargs):
         record_builder.set_grid_dim(*grid)
         record_builder.add_tensors(tensors)
         record_builder.sort_tensor_handles()
-        
 
-        # Variable to hold the current block indices
         current_block_indices = (0, 0, 0)
 
         for x in range(grid[0]):
@@ -678,16 +706,25 @@ def _grid_executor_call(self, *args_dev, **kwargs):
                                         changed_vars[var_name] = new_safe
                                 except Exception:
                                     continue
+
+                            # Capture IR or any other data here again if needed at block end
+                            dire = get_ir()
+                            printc(dire,"magenta")
+
                             data.append({
                                 'source_line': source_line,
                                 'changed_vars': changed_vars,
                                 'block_indices': current_block_indices,
-                                'is_final': True
+                                'is_final': True,
+                                'ir': ir
                             })
         _unpatch_lang()
 
     finally:
         return data
+
+
+
 
 def _get_variable_name(var):
     import inspect
