@@ -29,32 +29,32 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, stride_am, stride_ak,
     # Calculate program ID and group size
     pid_x = tl.program_id(0)
     pid_y = tl.program_id(1)
-    num_pid_x = tl.cdiv(M, BLOCK_SIZE_M)
-    num_pid_y = tl.cdiv(N, BLOCK_SIZE_N)
+    num_pid_x = tl.cdiv(M, 16)
+    num_pid_y = tl.cdiv(N, 16)
 
 
     # Calculate memory offsets for accessing matrix tiles
-    offs_am = (pid_x * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)) % M
-    offs_bn = (pid_y * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)) % N
-    offs_k = tl.arange(0, BLOCK_SIZE_K)
+    offs_am = (pid_x * 16 + tl.arange(0, 16)) % M
+    offs_bn = (pid_y * 16 + tl.arange(0, 16)) % N
+    offs_k = tl.arange(0, 16)
     a_ptrs = a_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)
     b_ptrs = b_ptr + (offs_k[:, None] * stride_bk + offs_bn[None, :] * stride_bn)
 
     # Initialize accumulator for the product
-    accumulator = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float16)
+    accumulator = tl.zeros((16, 16), dtype=tl.float16)
     
-    for i in range(0, tl.cdiv(K, BLOCK_SIZE_K)):
-        a = tl.load(a_ptrs, mask=offs_k[None, :] < K - i * BLOCK_SIZE_K, other=0.0)
-        b = tl.load(b_ptrs, mask=offs_k[:, None] < K - i * BLOCK_SIZE_K, other=0.0)
+    for i in range(0, tl.cdiv(K, 16)):
+        a = tl.load(a_ptrs, mask=offs_k[None, :] < K - i * 16, other=0.0)
+        b = tl.load(b_ptrs, mask=offs_k[:, None] < K - i * 16, other=0.0)
         accumulator += tl.dot(a, b)
-        a_ptrs += BLOCK_SIZE_K * stride_ak
-        b_ptrs += BLOCK_SIZE_K * stride_bk
+        a_ptrs += 16 * stride_ak
+        b_ptrs += 16 * stride_bk
         # printc(accumulator)
 
     # Store the results
-    c = accumulator.to(tl.float16)
-    offs_cm = pid_x * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
-    offs_cn = pid_y * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
+    c = accumulator.to(tl.float32)
+    offs_cm = pid_x * 16 + tl.arange(0, 16)
+    offs_cn = pid_y * 16 + tl.arange(0, 16)
     c_ptrs = c_ptr + stride_cm * offs_cm[:, None] + stride_cn * offs_cn[None, :]
     c_mask = (offs_cm[:, None] < M) & (offs_cn[None, :] < N)
     tl.store(c_ptrs, c, mask=c_mask)
@@ -92,7 +92,7 @@ def perform_matmul(device, M, N, K):
     return a, b, c
 
 if __name__ == "__main__":
-    device = "cpu"  # You can change this to your specific device
+    device = "cuda:0"  # You can change this to your specific device
     M, N, K = 16*1, 16*1, 16*1
     a, b, c = perform_matmul(device, M, N, K)
     
