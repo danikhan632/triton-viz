@@ -92,7 +92,7 @@ def perform_matmul(device, M, N, K):
     return a, b, c
 
 if __name__ == "__main__":
-    device = "cuda:0"  # You can change this to your specific device
+    device = "cpu"  # You can change this to your specific device
     M, N, K = 16*1, 16*1, 16*1
     a, b, c = perform_matmul(device, M, N, K)
     

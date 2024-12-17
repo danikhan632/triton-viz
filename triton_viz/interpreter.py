@@ -543,7 +543,8 @@ def get_ir():
     import json
     from pathlib import Path
 
-    return open("/workspaces/triton-viz/examples/matmul.ttgir","r").read()
+    # return open("/workspaces/triton-viz/examples/matmul.ttgir","r").read()
+    return ""
 
 
 def _grid_executor_call(self, *args_dev, **kwargs):

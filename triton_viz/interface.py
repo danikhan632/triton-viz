@@ -22,7 +22,7 @@ from .trace import get_blocks, get_src
 # Assuming `frontend/build` contains your React build output.
 app = Flask(
     __name__,
-    static_folder='build',  
+    static_folder='frontend_build',  
     static_url_path=''
 )
 CORS(app)
