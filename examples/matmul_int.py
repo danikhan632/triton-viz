@@ -1,12 +1,12 @@
 import torch
 import triton
 import triton.language as tl
-import triton_viz
-
+# import triton_viz
+# from triton_viz.interpreter import record_builder
 BLOCK_SIZE_M = 8
 BLOCK_SIZE_N = 8
 BLOCK_SIZE_K = 8
-
+torch.manual_seed(42)
 
 def printc(obj, color="cyan"):
     color_code = {
@@ -16,10 +16,8 @@ def printc(obj, color="cyan"):
     colored_text = f"\033[{color_code[color]}m{obj}\033[0m" if color in color_code else obj
     print(colored_text)
 
-torch.manual_seed(44)
 
 
-@triton_viz.trace
 @triton.jit
 def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, stride_am, stride_ak, 
                   stride_bk, stride_bn, stride_cm, stride_cn):
@@ -49,9 +47,12 @@ def matmul_kernel(a_ptr, b_ptr, c_ptr, M, N, K, stride_am, stride_ak,
         a = tl.load(a_ptrs, mask=offs_k[None, :] < K - i * 16, other=0.0)
         b = tl.load(b_ptrs, mask=offs_k[:, None] < K - i * 16, other=0.0)
         accumulator += tl.dot(a, b)
+        print("==========================================")
+        print(a_ptrs)
+        print("==========================================")
         a_ptrs += 16 * stride_ak
         b_ptrs += 16 * stride_bk
-        # printc(accumulator)
+
 
     # Store the results
     c = accumulator.to(tl.float32)
@@ -86,16 +87,16 @@ def perform_matmul(device, M, N, K):
     # Generate random values between 200 and 1000
     a = 200 + 800 * torch.rand((32*sz, 48*sz), device=device, dtype=torch.float32)
     b = 200 + 800 * torch.rand((48*sz, 32*sz), device=device, dtype=torch.float32)
+    printc(a,'blue')
     printc(b,'green')
 
     c = matmul(a, b)
 
- # Launch visualization after matmul operation
+
     return a, b, c
 
 if __name__ == "__main__":
     device = "cuda:0"  # You can change this to your specific device
     M, N, K = 16*1, 16*1, 16*1
     a, b, c = perform_matmul(device, M, N, K)
-    triton_viz.launch() 
     
