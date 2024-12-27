@@ -104,8 +104,10 @@ class Tensor:
     stride: Tuple
     shape: Tuple
     element_size: int
-    data: torch.Tensor
-
+    data: Any
+    var_name: Any
+    ptr_map: Any
+    highlighted_indices: Any
 
 @dataclass
 class Grid:

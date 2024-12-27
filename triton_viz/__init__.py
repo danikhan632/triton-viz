@@ -1,7 +1,8 @@
-from .trace import trace, dump, sample, get_blocks
-from .draw import collect_grid
+from .trace import trace,  get_blocks
+
 from .interface import launch
+from .interpreter import get_data
 
 
 
-__all__ = ["trace", "launch", "dump", "sample", "collect_grid", "interpreter", "get_blocks"]
+__all__ = ["trace", "launch", "dump", "sample", "interpreter", "get_blocks", "get_data"]

@@ -12,11 +12,13 @@ from flask import Flask, render_template, jsonify, request, Response, send_from_
 from flask_cors import CORS
 from flask_cloudflared import _run_cloudflared
 
-# Internal module imports
-from .analysis import analyze_records
-from .draw import get_visualization_data
+from .interpreter import get_data
+
 from .tooltip import get_tooltip_data
 from .trace import get_blocks, get_src
+
+
+
 
 # Configure Flask application
 # Assuming `frontend/build` contains your React build output.
@@ -33,56 +35,9 @@ raw_tensor_data = None
 precomputed_c_values = {}
 current_fullscreen_op = None
 
-def precompute_c_values(op_data):
-    """
-    Precompute dot products (C values) for the given operation data to speed up future lookups.
-    """
-    input_data = op_data['input_data']
-    other_data = op_data['other_data']
-    rows, inner_dim = input_data.shape
-    cols = other_data.shape[1]
 
-    precomputed = {}
-    for i in range(rows):
-        for j in range(cols):
-            # Initialize an array where precomputed[(i,j)][k] will store the dot product 
-            # of the first k elements of input_data[i] and other_data for the given indices.
-            precomputed[(i, j)] = [0] * (inner_dim + 1)
-            for k in range(1, inner_dim + 1):
-                val = torch.dot(input_data[i, :k], other_data[:k, j]).item()
-                precomputed[(i, j)][k] = val
 
-    return precomputed
 
-def update_global_data():
-    """
-    Update the global_data dictionary by performing data analysis, fetching visualization data,
-    and computing tooltips. Also precompute values for dot operations.
-    """
-    global global_data, raw_tensor_data, precomputed_c_values
-    analysis_data = analyze_records()
-    viz_data = get_visualization_data()
-
-    global_data = {
-        "ops": {
-            "visualization_data": viz_data["visualization_data"],
-            "failures": viz_data["failures"],
-            "kernel_src": viz_data["kernel_src"]
-        }
-    }
-
-    raw_tensor_data = viz_data["raw_tensor_data"]
-
-    # Precompute C values for each Dot operation
-    precomputed_c_values = {}
-    for uuid, op_data in raw_tensor_data.items():
-        if 'input_data' in op_data and 'other_data' in op_data:
-            precomputed_c_values[uuid] = precompute_c_values(op_data)
-
-    # Convert analysis data to DataFrame for tooltips
-    df = pd.DataFrame(analysis_data, columns=["Metric", "Value"])
-    analysis_with_tooltip = get_tooltip_data(df)
-    global_data["analysis"] = analysis_with_tooltip
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -96,22 +51,13 @@ def serve(path):
     return send_from_directory(app.static_folder, 'index.html')
 
 @app.route('/api/data')
-def get_data():
+def get_dat():
     """
     Return the global data as JSON. If data is not computed yet, update it first.
     """
-    global global_data
-    if global_data is None:
-        update_global_data()
-    return jsonify(global_data)
 
-@app.route('/api/update_data')
-def update_data():
-    """
-    Force an update of the global data and return a success status.
-    """
-    update_global_data()
-    return jsonify({"status": "Data updated successfully"})
+    return jsonify(get_data())
+
 
 @app.route('/api/setop', methods=['POST'])
 def set_current_op():
@@ -134,66 +80,6 @@ def getSrc():
 
 
 
-def tensor_to_json(tensor):
-
-    try:
-        
-        def serialize_numpy(obj):
-            if isinstance(obj, np.integer):
-                return int(obj)
-            elif isinstance(obj, np.floating):
-                return float(obj)
-            elif isinstance(obj, np.ndarray):
-                return obj.tolist()
-            elif isinstance(obj, tl.constexpr):
-                return obj.value
-            raise TypeError(f'Object of type {obj.__class__.__name__} is not JSON serializable')
-
-        tensor_dict = {}
-        
-        # List of potential attributes
-        attributes = ['dtype', 'shape', 'stride', 'element_size', 'data']
-        
-        for attr in attributes:
-            try:
-                value = getattr(tensor, attr)
-                if attr == 'data' and isinstance(value, torch.Tensor):
-                    tensor_dict[attr] = value.cpu().numpy().tolist()
-                elif attr == 'dtype':
-                    tensor_dict[attr] = str(value)
-                else:
-                    tensor_dict[attr] = value
-            except AttributeError:
-                # If the attribute doesn't exist, we simply skip it
-                pass
-
-        return json.dumps(tensor_dict, default=serialize_numpy)
-    except Exception as e:
-        print(e)
-
-
-def numpy_to_python(obj):
-
-    for key in obj:
-        if key == 'changed_vars':
-            for var_key, value in obj[key].items():
-                if isinstance(value, np.ndarray):
-                    obj[key][var_key] = value.tolist()
-                elif isinstance(value, np.integer):
-                    obj[key][var_key] = int(value)
-                elif isinstance(value, np.floating):
-                    obj[key][var_key] = float(value)
-                elif isinstance(value, dict):
-                    obj[key][var_key] = numpy_to_python(value)
-                elif isinstance(value, list):
-                    obj[key][var_key] = [numpy_to_python(item) for item in value]
-                elif isinstance(value, triton.language.core.tensor):
- 
-                    obj[key][var_key] = value.to_json()
-         
-
-    return obj
-
 
 @app.route('/process_blocks', methods=['POST'])
 def process_blocks():
@@ -213,10 +99,6 @@ def process_blocks():
         
         if blk['block_indices'][0] == x and blk['block_indices'][1] == y and blk['block_indices'][2] == z:
             results.append((blk))
-  
-        
-            
-
 
     return jsonify({"results": results})
 

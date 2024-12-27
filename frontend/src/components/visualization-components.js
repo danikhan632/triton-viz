@@ -192,33 +192,124 @@ const CustomCameraControls = ({ onCameraReady }) => {
 
 
 
-function fixIndex(idx, dimCount) {
-  const f = Array.isArray(idx) ? idx.flat(Infinity) : [idx];
-  return f.map(v=>v===-1?0:v).slice(0,dimCount);
-}
-
-function matchCoords(cube, highlight) {
-  if (cube.length !== highlight.length) return false;
-  for (let i=0;i<cube.length;i++) if (cube[i]!==highlight[i]) return false;
-  return true;
-}
 
 
-function checkHighlights(dimCount, highlightedIndices, cubeIndex) {
-  if (!Array.isArray(highlightedIndices) || highlightedIndices.length===0) return false;
-  for (let h of highlightedIndices) {
-    if (Array.isArray(h) && h.some(Array.isArray)) {
-      for (let sub of h) {
-        const coords=fixIndex(sub,dimCount);
-        if (matchCoords(cubeIndex, coords)) return true;
+// if (cubeIndex[1] === 47 && cubeIndex[0] === 31 ) {
+//   console.log("triple: ",triple, " cubeIndex: ",cubeIndex);
+//   return true;
+// }
+
+function getCornerValues(highlightedIndices) {
+  if (!Array.isArray(highlightedIndices) || highlightedIndices.length === 0) {
+    return null;
+  }
+
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+  for (let i = 0; i < highlightedIndices.length; i++) {
+    const row = highlightedIndices[i];
+    if (Array.isArray(row)) {
+      for (let j = 0; j < row.length; j++) {
+        const triple = row[j];
+        if (Array.isArray(triple) && triple.length === 3) {
+          const [x, y, z] = triple;
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (z < minZ) minZ = z;
+
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+          if (z > maxZ) maxZ = z;
+        }
       }
-    } else {
-      const coords=fixIndex(h,dimCount);
-      if (matchCoords(cubeIndex, coords)) return true;
     }
   }
+
+  return {
+    minCorner: [minX, minY, minZ],
+    maxCorner: [maxX, maxY, maxZ]
+  };
+}
+
+function getFourCorners(highlightedIndices) {
+  if (!Array.isArray(highlightedIndices) || highlightedIndices.length === 0) {
+    return null;
+  }
+
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  for (let i = 0; i < highlightedIndices.length; i++) {
+    const row = highlightedIndices[i];
+    if (Array.isArray(row)) {
+      for (let j = 0; j < row.length; j++) {
+        const triple = row[j];
+        if (Array.isArray(triple) && triple.length === 3) {
+          const [x, y] = triple; // ignoring z for 2D corners
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+  }
+
+  // Return the four corners of the bounding rectangle
+  return [
+    [minX, minY],
+     [maxX, minY],
+   [minX, maxY],
+    [maxX, maxY],
+  ];
+}
+
+
+
+function checkHighlights(dimCount, highlightedIndices, cubeIndex, dims) {
+  const foo =getFourCorners(highlightedIndices) ;
+  if(foo !=null){
+    console.log(foo);
+  }
+    
+  const corners = getFourCorners(highlightedIndices);
+  if (corners ===null) return false;
+  for (let i = 0; i < corners.length; i++) {
+    if (cubeIndex[1] === corners[i][0] && cubeIndex[0] === corners[i][1] ) {
+      console.log("corners[i] ",corners[i], " cubeIndex: ",cubeIndex);
+      return true;
+    }
+
+  }
+  
   return false;
 }
+
+
+// function checkHighlights(dimCount, highlightedIndices, cubeIndex, dims) {
+  // if (!Array.isArray(highlightedIndices) || highlightedIndices.length === 0) return false;
+
+  // if (dimCount === 2) {
+  //   // Process 2D case (list of [x, y, z] triples)
+  //   let printCount = 0; // Counter to print 5 items for debugging
+  //   for (let i = 0; i < highlightedIndices.length; i++) {
+  //     const row = highlightedIndices[i]; // Each `row` is a [x, y, z] triple
+  //     if (Array.isArray(row)) {
+  //       for (let j = 0; j < row.length; j++) {
+  //         const triple = row[j]; // Each `triple` is [x, y, z]
+          
+  //         // Debug: print up to 5 values
+   
+          
+  //       }
+  //     }
+  //   }
+
+  //   return false; // No match found
+  // }
+// }
+
 
 
 const TensorMesh = React.memo(({
@@ -261,13 +352,15 @@ const TensorMesh = React.memo(({
   for (let i=0;i<rows;i++){
     for (let j=0;j<cols;j++){
       for (let k=0;k<depths;k++){
+    
         const idx = i*cols*depths+j*depths+k;
         const val = tensorData[idx]??0;
         const den = (maxVal - minVal)||1;
         const intensity = maxVal===minVal?0.5:(val - minVal)/den;
-        const cubeIndex = [i,j,k].slice(0,dimCount);
+        const cubeIndex = [i,j,k];
+   
         const highlighted = checkHighlights(dimCount, highlightedIndices, cubeIndex);
-        const cubeColor = isTensorPtr ? (highlighted?getColorForValue(varColor,intensity):'grey') : getColorForValue(varColor,intensity);
+        const cubeColor = getColorForValue(varColor,intensity);
         boxes.push(
           <group key={`${varName}-${i}-${j}-${k}`} position={[j - cols/2, -i + rows/2, k - depths/2]}>
             <mesh
@@ -347,7 +440,7 @@ const TensorsVisualization = React.memo(({
               position={tensorPosition}
               sliceMode={sliceMode[key]}
               sliceIndex={sliceIndices[key] || 0}
-              isTensorPtr={!!isTensorPtr} // Use isTensorPtr instead of isPointerBased
+              isTensorPtr={highlighted_indices.length > 0} // Use isTensorPtr instead of isPointerBased
             />
           );
         })}

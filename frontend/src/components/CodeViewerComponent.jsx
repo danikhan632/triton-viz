@@ -10,7 +10,6 @@ import {
   DialogActions,
 } from '@mui/material';
 import PropTypes from 'prop-types';
-import isEqual from 'lodash/isEqual'; // Import lodash's isEqual for deep comparison
 
 const CodeViewerComponent = ({
   currBlock,
@@ -19,13 +18,14 @@ const CodeViewerComponent = ({
   codeLines,
   loadingCode,
   errorCode,
-  processedData, // We now receive processedData
+  processedData,
 }) => {
   const codeContainerRef = useRef(null);
-  const [currentHighlightIndex, setCurrentHighlightIndex] = useState(0); // Track current highlight index
+  const [currentHighlightIndex, setCurrentHighlightIndex] = useState(0);
   const [isInfoPopupOpen, setIsInfoPopupOpen] = useState(false);
+  const [showIR, setShowIR] = useState(false); // New state for toggling IR vs Source
 
-  // Memoize linesToHighlight to prevent unnecessary recalculations
+  // Find highlights
   const linesToHighlight = useMemo(() => {
     if (!processedData || !processedData.results || !codeLines) {
       return [];
@@ -39,7 +39,6 @@ const CodeViewerComponent = ({
       }
     });
 
-    // Convert Set to Array and maintain order based on results
     const highlightLines = processedData.results
       .map((result) => {
         const lineNum = findLineNumber(codeLines, result.source_line);
@@ -50,19 +49,16 @@ const CodeViewerComponent = ({
     return highlightLines;
   }, [processedData, codeLines]);
 
-  // Initialize or reset currentHighlightIndex when linesToHighlight changes
   useEffect(() => {
     if (linesToHighlight.length > 0) {
       setCurrentHighlightIndex(0);
       setCurrLine(linesToHighlight[0]);
     } else if (codeLines.length > 0) {
       setCurrentHighlightIndex(0);
-      setCurrLine(1); // Default to first line if no highlights
+      setCurrLine(1);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [linesToHighlight]);
+  }, [linesToHighlight, codeLines, setCurrLine]);
 
-  // Scroll to the current line when currLine changes
   useEffect(() => {
     if (currLine && codeContainerRef.current) {
       const lineElement = document.getElementById(`code-line-${currLine}`);
@@ -72,10 +68,8 @@ const CodeViewerComponent = ({
     }
   }, [currLine]);
 
-  // Handle keyboard navigation using up and down arrow keys
   useEffect(() => {
     const handleKeyDown = (event) => {
-
       if (event.key === '.') {
         event.preventDefault();
         handleNextLine();
@@ -86,11 +80,9 @@ const CodeViewerComponent = ({
     };
 
     window.addEventListener('keydown', handleKeyDown);
-
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentHighlightIndex, linesToHighlight]);
 
   const handlePrevLine = () => {
@@ -109,17 +101,28 @@ const CodeViewerComponent = ({
     }
   };
 
-  // Function to find the line number of a specific source line
   function findLineNumber(lines, sourceLine) {
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].trim() === sourceLine.trim()) {
-        return i + 1; // Line numbers start at 1
+        return i + 1;
       }
     }
-    return -1; // Not found
+    return -1;
   }
 
-  // If there's an error fetching code, display it
+  // Determine if IR is available
+  let irContent = '';
+  if (processedData && processedData.results) {
+    const resultForLine = processedData.results.find((r) => {
+      const lineNum = findLineNumber(codeLines, r.source_line);
+      return lineNum === currLine;
+    });
+    if (resultForLine && resultForLine.ir && resultForLine.ir.trim() !== '') {
+      irContent = resultForLine.ir;
+    }
+  }
+
+  // Handle errors or loading states
   if (errorCode) {
     return (
       <Box
@@ -138,7 +141,6 @@ const CodeViewerComponent = ({
     );
   }
 
-  // If the code is still loading, display a loading message
   if (loadingCode) {
     return (
       <Box
@@ -157,19 +159,15 @@ const CodeViewerComponent = ({
     );
   }
 
-  // If no block is selected, display a message
   if (!currBlock) {
     return (
-      <Typography
-        variant="h6"
-        color="grey.500"
-        align="center"
-        sx={{ mt: 2 }}
-      >
+      <Typography variant="h6" color="grey.500" align="center" sx={{ mt: 2 }}>
         Select a block to view code
       </Typography>
     );
   }
+
+  const viewerTitle = irContent ? (showIR ? 'IR Viewer' : 'Source Code Viewer') : 'Source Code Viewer';
 
   return (
     <Box
@@ -183,60 +181,91 @@ const CodeViewerComponent = ({
       {/* Header Section */}
       <Box
         sx={{
-          flex: '0 0 15%',
+          flex: '0 0 auto',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           mb: 2,
+          position: 'relative'
         }}
       >
         <Typography variant="h6" gutterBottom>
-          Source Code Viewer
+          {viewerTitle}
         </Typography>
+        {irContent && (
+          <Button
+            variant="outlined"
+            size="small"
+            sx={{ position: 'absolute', right: 10 }}
+            onClick={() => setShowIR((prev) => !prev)}
+          >
+            {showIR ? 'Show Source' : 'Show IR'}
+          </Button>
+        )}
       </Box>
 
-      {/* Code Display Section */}
-      <Box
-        ref={codeContainerRef}
-        sx={{
-          flex: '1 1 85%',
-          overflow: 'auto',
-          bgcolor: '#1e1e1e',
-          color: '#d4d4d4',
-          p: 2,
-          fontFamily: 'monospace',
-          whiteSpace: 'pre-wrap',
-          fontSize: '14px',
-          lineHeight: '1.5',
-        }}
-      >
-        {codeLines.map((line, index) => {
-          const lineNumber = index + 1;
-          const isCurrent = currLine === lineNumber;
+      {/* Content Section */}
+      {showIR && irContent ? (
+        // IR Content
+        <Box
+          sx={{
+            flex: '1 1 auto',
+            overflow: 'auto',
+            bgcolor: '#1e1e1e',
+            color: '#d4d4d4',
+            p: 2,
+            fontFamily: 'monospace',
+            whiteSpace: 'pre-wrap',
+            fontSize: '14px',
+            lineHeight: '1.5',
+          }}
+        >
+          <Typography component="pre">{irContent}</Typography>
+        </Box>
+      ) : (
+        // Source Code
+        <Box
+          ref={codeContainerRef}
+          sx={{
+            flex: '1 1 auto',
+            overflow: 'auto',
+            bgcolor: '#1e1e1e',
+            color: '#d4d4d4',
+            p: 2,
+            fontFamily: 'monospace',
+            whiteSpace: 'pre-wrap',
+            fontSize: '14px',
+            lineHeight: '1.5',
+          }}
+        >
+          {codeLines.map((line, index) => {
+            const lineNumber = index + 1;
+            const isCurrent = currLine === lineNumber;
 
-          return (
-            <div
-              key={index}
-              id={`code-line-${lineNumber}`}
-              style={{
-                backgroundColor: isCurrent
-                  ? 'rgba(255, 255, 0, 0.7)' // Highlighted color
-                  : 'transparent',
-                padding: '0 5px',
-                cursor: 'default',
-              }}
-            >
-              <span style={{ color: '#888', userSelect: 'none' }}>
-                {lineNumber.toString().padStart(3, ' ')}:
-              </span>{' '}
-              {line}
-            </div>
-          );
-        })}
-      </Box>
+            return (
+              <div
+                key={index}
+                id={`code-line-${lineNumber}`}
+                style={{
+                  backgroundColor: isCurrent
+                    ? 'rgba(255, 255, 0, 0.7)'
+                    : 'transparent',
+                  padding: '0 5px',
+                  cursor: 'default',
+                }}
+              >
+                <span style={{ color: '#888', userSelect: 'none' }}>
+                  {lineNumber.toString().padStart(3, ' ')}:
+                </span>{' '}
+                {line}
+              </div>
+            );
+          })}
+        </Box>
+      )}
 
-      {/* Navigation Buttons */}
-      {linesToHighlight.length > 1 && (
+      {/* Navigation Buttons (only when showing source and multiple highlights) */}
+      {linesToHighlight.length > 1 && !showIR && (
         <Box
           sx={{
             display: 'flex',

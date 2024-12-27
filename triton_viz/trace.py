@@ -2,7 +2,7 @@ from triton.runtime import KernelInterface
 from triton.runtime.interpreter import InterpretedFunction
 from triton import JITFunction
 import traceback
-from .interpreter import patch, record_builder
+from .interpreter import patch
 from typing import Tuple
 
 # Global variable to store dat
@@ -21,32 +21,20 @@ def get_blocks():
 
 class Trace(KernelInterface):
     def __init__(self, kernel: JITFunction) -> None:
-        self.src = kernel.src
-        self.src_map = {}
-        assert isinstance(kernel, JITFunction), "Kernel must be a JITFunction"
+
+
+        self.src =kernel.src
         self._fn = InterpretedFunction(kernel.fn)
 
     def run(self, *args, **kwargs):
-        global _global_blocks
-        global _global_src
         with patch():
-            kwargs['src_map'] = self.src_map
-            kwargs['src'] = self.src
-            _global_src = self.src
-            dat = self._fn.run(*args, **kwargs)
-            _global_blocks = dat  
-            return dat
+            self._fn.run(*args, **kwargs)
+
 
     def get_src(self):
+        print(self.src)
         return self.src
 
 def trace(kernel):
     return Trace(kernel)
 
-def dump(path: str):
-    # TODO: Dump the record_builder to a file
-    for launch in record_builder.launches:
-        print(launch)
-
-def sample(idx: Tuple):
-    record_builder.set_sampling_grid_idx(idx)
