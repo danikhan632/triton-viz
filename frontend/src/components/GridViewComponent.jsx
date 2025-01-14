@@ -6,8 +6,9 @@ import GridBlock from './GridBlock';
 // Helper function to fetch data for visualization
 const fetchVisualizationData = async () => {
   try {
-    const response = await fetch('/api/data');
+    const response = await fetch('http://10.0.0.77:5002/api/data');
     const data = await response.json();
+    console.log(data);
     return data;
   } catch (error) {
     console.error('Error fetching visualization data:', error);
@@ -26,9 +27,9 @@ const GridViewComponent = ({ setCurrBlock }) => {
     // Fetch visualization data on component mount
     const fetchData = async () => {
       const data = await fetchVisualizationData();
-      if (data && data.ops && data.ops.visualization_data) {
+      if (data) {
         setGlobalData(data);
-        determineMaxValues(data.ops.visualization_data);
+        determineMaxValues(data);
       }
     };
     fetchData();
@@ -36,25 +37,33 @@ const GridViewComponent = ({ setCurrBlock }) => {
 
   // Determine the maximum X, Y, Z values from the visualization data
   const determineMaxValues = (visualizationData) => {
-    const keys = Object.keys(visualizationData);
-    if (keys.length === 0) {
-      setMaxValues([0, 0, 0]);
-      return;
+    // Ensure visualizationData is an array and not empty
+    if (!Array.isArray(visualizationData) || visualizationData.length === 0) {
+        setMaxValues([0, 0, 0]);
+        return;
     }
 
-    const maxVals = keys.reduce(
-      (max, key) => {
-        const [x, y, z] = key.split('_').map(Number);
-        return [
-          Math.max(max[0], x),
-          Math.max(max[1], y),
-          Math.max(max[2], z),
-        ];
-      },
-      [0, 0, 0]
-    );
+    // Initialize maxVals with the minimum possible values
+    const maxVals = [0, 0, 0];
+
+    // Iterate over each object in visualizationData
+    visualizationData.forEach((item) => {
+        const { block_indices } = item;
+
+        if (Array.isArray(block_indices)) {
+            block_indices.forEach((val, index) => {
+                if (index < maxVals.length) {
+                    maxVals[index] = Math.max(maxVals[index], val);
+                }
+            });
+        }
+    });
+
+
+    // Update max values
     setMaxValues(maxVals);
-  };
+};
+
 
   // Update slider values for each axis
   const handleSliderChange = (index, newValue) => {
@@ -70,7 +79,7 @@ const GridViewComponent = ({ setCurrBlock }) => {
 
   // Render the grid based on slider and max values
   const renderGrid = () => {
-    if (!globalData || !globalData.ops || !globalData.ops.visualization_data) return null;
+    // if (!globalData || !globalData.ops || !globalData.ops.visualization_data) return null;
 
     const [xMax, yMax, zMax] = maxValues;
     const [xSlider, ySlider, zSlider] = sliderValues;
@@ -80,6 +89,7 @@ const GridViewComponent = ({ setCurrBlock }) => {
     const yValues = ySlider === -1 ? Array.from({ length: yMax + 1 }, (_, i) => i) : [ySlider];
     const zValues = zSlider === -1 ? Array.from({ length: zMax + 1 }, (_, i) => i) : [zSlider];
 
+    console.log("xValues",xValues)
     return (
       <Grid container spacing={1}>
         {zValues.map((z) => (
@@ -87,7 +97,8 @@ const GridViewComponent = ({ setCurrBlock }) => {
             <Grid container item xs={12} spacing={1} key={`row-${y}-${z}`}>
               {xValues.map((x) => {
                 const key = `${x}_${y}_${z}`;
-                const blockData = globalData.ops.visualization_data[key];
+                const blockData = [];
+                console.log("Rendering GridBlock with:", { x, y, z, blockData });
 
                 return (
                   <Grid item key={key}>

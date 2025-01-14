@@ -32,7 +32,7 @@ const App = () => {
   useEffect(() => {
     const fetchCode = async () => {
       try {
-        const response = await fetch('/get_src', {
+        const response = await fetch('http://10.0.0.77:5002/get_src', {
           method: 'GET',
         });
         if (!response.ok) {

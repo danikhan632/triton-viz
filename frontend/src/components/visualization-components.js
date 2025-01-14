@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, startTransition } from 'react';
+import React, { useEffect, useRef, startTransition, useMemo } from 'react';
+
 import { Box } from '@mui/material';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import PropTypes from 'prop-types';
@@ -50,7 +51,7 @@ const getVariableColor = (varName) => {
 const fetchAndLogBlockData = async (gridX, gridY, gridZ) => {
   // console.log('Fetching data for block:', gridX, gridY, gridZ);
   try {
-    const response = await fetch('/process_blocks', {
+    const response = await fetch('http://10.0.0.77:5002/process_blocks', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -287,119 +288,187 @@ function checkHighlights(dimCount, highlightedIndices, cubeIndex, dims) {
 }
 
 
-// function checkHighlights(dimCount, highlightedIndices, cubeIndex, dims) {
-  // if (!Array.isArray(highlightedIndices) || highlightedIndices.length === 0) return false;
+const TensorMesh = React.memo(
+  ({
+    value,
+    dims,
+    varName,
+    highlightedIndices = [],
+    setHoveredInfo,
+    position,
+    sliceMode = false,
+    sliceIndex = 0,
+    isTensorPtr
+  }) => {
+    // 1. All hooks at the top (no conditions!)
+    const varColor = useMemo(() => getVariableColor(varName), [varName]);
 
-  // if (dimCount === 2) {
-  //   // Process 2D case (list of [x, y, z] triples)
-  //   let printCount = 0; // Counter to print 5 items for debugging
-  //   for (let i = 0; i < highlightedIndices.length; i++) {
-  //     const row = highlightedIndices[i]; // Each `row` is a [x, y, z] triple
-  //     if (Array.isArray(row)) {
-  //       for (let j = 0; j < row.length; j++) {
-  //         const triple = row[j]; // Each `triple` is [x, y, z]
-          
-  //         // Debug: print up to 5 values
-   
-          
-  //       }
-  //     }
-  //   }
+    const validDims = useMemo(() => dims.filter((d) => d > 0), [dims]);
+    const dimCount = validDims.length;
 
-  //   return false; // No match found
-  // }
-// }
+    const [rows, cols, depths] = useMemo(() => {
+      if (dimCount === 1) return [1, validDims[0], 1];
+      if (dimCount === 2) return [validDims[0], validDims[1], 1];
+      if (dimCount === 3) return [validDims[0], validDims[1], validDims[2]];
+      return [1, 1, 1];
+    }, [validDims, dimCount]);
 
-
-
-const TensorMesh = React.memo(({
-  value,
-  dims,
-  varName,
-  highlightedIndices=[],
-  setHoveredInfo,
-  position,
-  sliceMode=false,
-  sliceIndex=0,
-  isTensorPtr
-}) => {
-  const varColor = getVariableColor(varName);
-  const validDims = dims.filter(d=>d>0);
-  const dimCount = validDims.length;
-  let rows=1,cols=1,depths=1;
-  if (dimCount===1) cols=validDims[0];
-  else if (dimCount===2) [rows,cols]=validDims;
-  else if (dimCount===3) [rows,cols,depths]=validDims;
-
-  const hasData = value && Array.isArray(value);
-  let tensorData=[];
-  let minVal=0,maxVal=1;
-  if (hasData) {
-    tensorData=value.flat(Infinity).filter(v=>v!=null);
-    if (tensorData.length>0) {
-      minVal=Math.min(...tensorData);
-      maxVal=Math.max(...tensorData);
-    } else {
-      tensorData=new Array(rows*cols*depths).fill(0);
-    }
-  } else if (isTensorPtr) {
-    tensorData=new Array(rows*cols*depths).fill(0);
-  } else {
-    return <group position={position}></group>;
-  }
-
-  const boxes=[];
-  for (let i=0;i<rows;i++){
-    for (let j=0;j<cols;j++){
-      for (let k=0;k<depths;k++){
-    
-        const idx = i*cols*depths+j*depths+k;
-        const val = tensorData[idx]??0;
-        const den = (maxVal - minVal)||1;
-        const intensity = maxVal===minVal?0.5:(val - minVal)/den;
-        const cubeIndex = [i,j,k];
-   
-        const highlighted = checkHighlights(dimCount, highlightedIndices, cubeIndex);
-        const cubeColor = getColorForValue(varColor,intensity);
-        boxes.push(
-          <group key={`${varName}-${i}-${j}-${k}`} position={[j - cols/2, -i + rows/2, k - depths/2]}>
-            <mesh
-              onPointerOver={(e)=>{
-                e.stopPropagation();
-                e.object.parent.traverse(ch=>{if(ch.isLineSegments)ch.material.color.set('yellow');});
-                startTransition(()=>{
-                  setHoveredInfo({varName, indices:cubeIndex, value: tensorData[idx]??'N/A'});
-                });
-              }}
-              onPointerOut={(e)=>{
-                e.stopPropagation();
-                e.object.parent.traverse(ch=>{if(ch.isLineSegments)ch.material.color.set(highlighted?'red':'black');});
-                startTransition(()=>{setHoveredInfo(null);});
-              }}
-            >
-              <boxGeometry args={[0.9,0.9,0.9]} />
-              <meshStandardMaterial color={cubeColor} />
-            </mesh>
-            <lineSegments>
-              <edgesGeometry args={[new THREE.BoxGeometry(0.9,0.9,0.9)]} />
-              <lineBasicMaterial attach="material" color={highlighted?'red':'black'} />
-            </lineSegments>
-          </group>
-        );
+    // Flatten data + compute min/max
+    const { tensorData, minVal, maxVal } = useMemo(() => {
+      if (!value && !isTensorPtr) {
+        // No data AND not a pointer → no tensor
+        // We can still return something from here, but let's store data in a shape that
+        // won't break the next hooks. We'll handle the "empty" scenario after all hooks.
+        return {
+          tensorData: [],
+          minVal: 0,
+          maxVal: 1
+        };
       }
+
+      let dataArray = [];
+      let minV = 0;
+      let maxV = 1;
+
+      if (Array.isArray(value)) {
+        dataArray = value.flat(Infinity).filter((v) => v != null);
+        if (dataArray.length > 0) {
+          minV = Math.min(...dataArray);
+          maxV = Math.max(...dataArray);
+        } else {
+          dataArray = new Array(rows * cols * depths).fill(0);
+        }
+      } else if (isTensorPtr) {
+        dataArray = new Array(rows * cols * depths).fill(0);
+      }
+
+      return {
+        tensorData: dataArray,
+        minVal: minV,
+        maxVal: maxV
+      };
+    }, [value, rows, cols, depths, isTensorPtr]);
+
+    // Reuse geometry
+    const boxGeometry = useMemo(
+      () => new THREE.BoxGeometry(0.9, 0.9, 0.9),
+      []
+    );
+    const edgesGeometry = useMemo(
+      () => new THREE.EdgesGeometry(boxGeometry),
+      [boxGeometry]
+    );
+
+    // Create boxes
+    const boxes = useMemo(() => {
+      const result = [];
+      const den = maxVal - minVal || 1;
+
+      for (let i = 0; i < rows; i++) {
+        for (let j = 0; j < cols; j++) {
+          for (let k = 0; k < depths; k++) {
+            const idx = i * cols * depths + j * depths + k;
+            const val = tensorData[idx] ?? 0;
+            const intensity = maxVal === minVal ? 0.5 : (val - minVal) / den;
+            const highlighted = checkHighlights(dimCount, highlightedIndices, [
+              i,
+              j,
+              k
+            ]);
+            const cubeColor = getColorForValue(varColor, intensity);
+
+            result.push(
+              <group
+                key={`${varName}-${i}-${j}-${k}`}
+                position={[
+                  j - cols / 2,
+                  -i + rows / 2,
+                  k - depths / 2
+                ]}
+              >
+                <mesh
+                  geometry={boxGeometry}
+                  onPointerOver={(e) => {
+                    e.stopPropagation();
+                    e.object.parent.traverse((ch) => {
+                      if (ch.isLineSegments) ch.material.color.set('yellow');
+                    });
+                    startTransition(() => {
+                      setHoveredInfo({
+                        varName,
+                        indices: [i, j, k],
+                        value: val
+                      });
+                    });
+                  }}
+                  onPointerOut={(e) => {
+                    e.stopPropagation();
+                    e.object.parent.traverse((ch) => {
+                      if (ch.isLineSegments) {
+                        ch.material.color.set(highlighted ? 'red' : 'black');
+                      }
+                    });
+                    startTransition(() => {
+                      setHoveredInfo(null);
+                    });
+                  }}
+                >
+                  <meshStandardMaterial color={cubeColor} />
+                </mesh>
+                <lineSegments geometry={edgesGeometry}>
+                  <lineBasicMaterial
+                    attach="material"
+                    color={highlighted ? 'red' : 'black'}
+                  />
+                </lineSegments>
+              </group>
+            );
+          }
+        }
+      }
+      return result;
+    }, [
+      rows,
+      cols,
+      depths,
+      tensorData,
+      varName,
+      varColor,
+      minVal,
+      maxVal,
+      highlightedIndices,
+      boxGeometry,
+      edgesGeometry,
+      setHoveredInfo,
+      dimCount
+    ]);
+
+    // 2. Now we can do an "early return" AFTER we have used all Hooks
+    // If there's really no data, just render an empty group
+    const isDataEmpty = !tensorData || tensorData.length === 0;
+
+    if (isDataEmpty && !isTensorPtr) {
+      return <group position={position} />;
     }
+
+    // 3. Otherwise, render the actual content
+    return (
+      <group position={position}>
+        <Text
+          position={[0, rows / 2 + 2, 0]}
+          fontSize={1}
+          color={`rgb(${varColor.r},${varColor.g},${varColor.b})`}
+          anchorX="center"
+          anchorY="middle"
+        >
+          {varName}
+          {sliceMode ? ` (Slice ${sliceIndex + 1}/${depths})` : ''}
+        </Text>
+        {boxes}
+      </group>
+    );
   }
-
-  return (
-    <group position={position}>
-      <Text position={[0, rows/2+2, 0]} fontSize={1} color={`rgb(${varColor.r},${varColor.g},${varColor.b})`} anchorX="center" anchorY="middle">
-        {varName} {sliceMode?`(Slice ${sliceIndex+1}/${depths})`:''}
-      </Text>
-      {boxes}
-    </group>
-  );
-});
-
+);
 
 
 
@@ -411,43 +480,45 @@ const TensorsVisualization = React.memo(({
   sliceMode,
   sliceIndices
 }) => {
-  const spacing = 50;
+    const spacing = 50;
   const numTensors = tensorVariables.length;
   const totalWidth = (numTensors - 1) * spacing;
 
-  return (
-    <Canvas
-      style={{ height: '100%', width: '100%' }}
-      camera={{ position: [0, 0, 100], fov: 45 }}
-    >
-      <ambientLight />
-      <pointLight position={[10, 10, 10]} />
-      <CustomCameraControls onCameraReady={onCameraControlsReady} />
-      <group position={[-totalWidth / 2, 0, 0]}>
-      {tensorVariables.map(([key, variable], index) => {
-          const { value, dims, highlighted_indices = [], isTensorPtr } = variable;
-          const validDims = dims.filter((dim) => dim > 0);
-          const tensorPosition = [index * spacing, 0, 0];
+    return (
+      <Canvas
+        style={{ height: '100%', width: '100%' }}
+        camera={{ position: [0, 0, 100], fov: 45 }}
+      >
+        <ambientLight />
+        <pointLight position={[10, 10, 10]} />
+        <CustomCameraControls onCameraReady={onCameraControlsReady} />
+<group position={[-totalWidth / 2, 0, 0]}>
+          {tensorVariables.map(([key, variable], index) => {
+            const { value, dims, highlighted_indices = [], isTensorPtr } = variable;
+            const validDims = dims.filter((dim) => dim > 0);
+            const tensorPosition = [index * spacing, 0, 0];
 
-          return (
-            <TensorMesh
-              key={key}
-              value={value}
-              dims={validDims}
-              varName={key}
-              highlightedIndices={highlighted_indices}
-              setHoveredInfo={setHoveredInfo}
-              position={tensorPosition}
-              sliceMode={sliceMode[key]}
-              sliceIndex={sliceIndices[key] || 0}
-              isTensorPtr={highlighted_indices.length > 0} // Use isTensorPtr instead of isPointerBased
-            />
-          );
-        })}
-      </group>
-    </Canvas>
-  );
-});
+            return (
+              <TensorMesh
+                key={key}
+                value={variable.value}
+                dims={validDims}
+                varName={key}
+                highlightedIndices={variable.highlighted_indices || []}
+                setHoveredInfo={setHoveredInfo}
+                position={tensorPosition}
+                sliceMode={sliceMode[key]}
+                sliceIndex={sliceIndices[key] || 0}
+                isTensorPtr={variable.highlighted_indices.length > 0}
+              />
+            );
+          })}
+        </group>
+      </Canvas>
+    );
+  }
+);
+
 
 // Helper function to get color based on intensity
 const getColorForValue = (baseColor, intensity) => {

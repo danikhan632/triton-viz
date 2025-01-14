@@ -1,9 +1,10 @@
-import os
+import os, sys
 import sys
 import time
 import threading
 import requests
 import pandas as pd
+
 import numpy as np
 import torch
 import triton
@@ -79,15 +80,13 @@ def getSrc():
 
 
 
-
-
 @app.route('/process_blocks', methods=['POST'])
 def process_blocks():
     data = request.json
 
-    x = data.get('x')
-    y = data.get('y')
-    z = data.get('z')
+    x = data.get('x',0)
+    y = data.get('y',0)
+    z = data.get('z',0)
 
     if x is None or y is None or z is None:
         return jsonify({"error": "Missing coordinates. Please provide x, y, and z."}), 400
@@ -95,11 +94,13 @@ def process_blocks():
     results = []
 
 
-    for blk in get_blocks():
-        
-        if blk['block_indices'][0] == x and blk['block_indices'][1] == y and blk['block_indices'][2] == z:
-            results.append((blk))
+    for blk in list((get_data())):
 
+        if blk['block_indices'][0] == int(x) and blk['block_indices'][1] == int(y) and blk['block_indices'][2] == int(z):
+            results.append((blk))
+            
+    # print(results)
+    # sys.exit(0)
     return jsonify({"results": results})
 
 
