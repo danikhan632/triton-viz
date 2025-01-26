@@ -100,6 +100,11 @@ def get_tensor_ptr_map(base_ptr, tensor):
     return addresses
 
 
+
+
+# def fix_tensor_map(tensor_a, tensor_b):
+    
+
 def get_tensor_ptr(tensor,tensor_table):
     indices =[]
     base_ptr = None
@@ -116,8 +121,8 @@ def get_tensor_ptr(tensor,tensor_table):
                     if tensor.handle.data[x] in set(curr_tensor.ptr_map.keys()):
                         indices.append(curr_tensor.ptr_map[tensor.handle.data[x]])
                     else:
-                        print(tensor.shape)
-                        print(tensor.handle.data)
+                        # print(tensor.shape)
+                        # print(tensor.handle.data)
                         print(f"Error Key {tensor.handle.data[x]}, (x:{x}) not found in {(full_tensor.var_name)}")
     if dims == 2:
         base_ptr = tensor.handle.data[0][0]        
@@ -129,13 +134,12 @@ def get_tensor_ptr(tensor,tensor_table):
                         if int(tensor.handle.data[x][y]) in set(curr_tensor.ptr_map.keys()):
                             indices.append(curr_tensor.ptr_map[tensor.handle.data[x][y]])
                         else:
-                            # print(int(tensor.handle.data[x][y]))
-                            # print(tensor.shape)
-                            # print(tensor.handle.data)
-                            # print(curr_tensor.ptr_map)
-                            # print( set(curr_tensor.ptr_map.keys()))
                             
-                            print(f"Error Key {tensor.handle.data[x][y]}, (x:{x}, y:{y})  not found in {(full_tensor.var_name)}")
+                            idxs = list(full_tensor.ptr_map.values())
+                            tmp = (x,y,0)
+                            #if tmp in idxs:
+                                # print(tmp)
+                            indices.append(tmp)
 
     if dims == 3:
         base_ptr = tensor.handle.data[0][0][0]     

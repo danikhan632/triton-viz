@@ -1,6 +1,16 @@
 // GridViewComponent.jsx
-import React, { useState, useEffect } from 'react';
-import { Box, Slider, Typography, Grid, Button, Dialog, DialogTitle, DialogContent, DialogActions } from '@mui/material';
+import React, { useState, useEffect, useMemo, memo } from 'react';
+import {
+  Box,
+  Slider,
+  Typography,
+  Grid,
+  Button,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
+} from '@mui/material';
 import GridBlock from './GridBlock';
 
 // Helper function to fetch data for visualization
@@ -15,118 +25,158 @@ const fetchVisualizationData = async () => {
   }
 };
 
-// GridViewComponent now handles only grid display and block selection
-const GridViewComponent = ({ setCurrBlock }) => {
-  const [globalData, setGlobalData] = useState(null);  // Store global data
-  const [maxValues, setMaxValues] = useState([0, 0, 0]);  // Max X, Y, Z for the grid
-  const [sliderValues, setSliderValues] = useState([-1, -1, -1]);  // Slider values for X, Y, Z axes
-  const [isInfoPopupOpen, setIsInfoPopupOpen] = useState(false);  // Info dialog visibility
+/** 
+ * Memoized grid component. 
+ * Renders blocks based on xValues, yValues, zValues, and a blockLookup table.
+ */
+const MemoizedGrid = memo(function MemoizedGrid({
+  xValues,
+  yValues,
+  zValues,
+  blockLookup,
+  handleBlockClick
+}) {
+  return (
+    <Grid container spacing={1}>
+      {zValues.map((z) =>
+        yValues.map((y) => (
+          <Grid container item xs={12} spacing={1} key={`row-${y}-${z}`}>
+            {xValues.map((x) => {
+              const key = `${x}:${y}:${z}`;
+              const blockData = blockLookup[key] || null; // Lookup block data
 
+              return (
+                <Grid item key={key}>
+                  {blockData ? (
+                    <GridBlock
+                      data={{
+                        x,
+                        y,
+                        z,
+                        operations: blockData,
+                      }}
+                      onClick={() => handleBlockClick(blockData)}
+                    />
+                  ) : (
+                    <Box
+                      sx={{
+                        width: 50,
+                        height: 50,
+                        bgcolor: 'grey.800',
+                        border: 1,
+                        borderColor: 'grey.700',
+                      }}
+                    />
+                  )}
+                </Grid>
+              );
+            })}
+          </Grid>
+        ))
+      )}
+    </Grid>
+  );
+});
+
+const GridViewComponent = ({ setCurrBlock }) => {
+  const [globalData, setGlobalData] = useState(null); // Store global data
+  const [maxValues, setMaxValues] = useState([0, 0, 0]); // Max X, Y, Z for the grid
+  const [sliderValues, setSliderValues] = useState([-1, -1, -1]); // Slider values for X, Y, Z
+  const [isInfoPopupOpen, setIsInfoPopupOpen] = useState(false); // Info dialog visibility
+
+  // 1. Fetch visualization data on mount
   useEffect(() => {
-    // Fetch visualization data on component mount
     const fetchData = async () => {
       const data = await fetchVisualizationData();
-      if (data && data.ops && data.ops.visualization_data) {
+      if (data) {
         setGlobalData(data);
-        determineMaxValues(data.ops.visualization_data);
+        determineMaxValues(data);
       }
     };
     fetchData();
   }, []);
 
-  // Determine the maximum X, Y, Z values from the visualization data
+  // 2. Determine the maximum X, Y, Z values from the visualization data
   const determineMaxValues = (visualizationData) => {
-    const keys = Object.keys(visualizationData);
-    if (keys.length === 0) {
+    if (!Array.isArray(visualizationData) || visualizationData.length === 0) {
       setMaxValues([0, 0, 0]);
       return;
     }
 
-    const maxVals = keys.reduce(
-      (max, key) => {
-        const [x, y, z] = key.split('_').map(Number);
-        return [
-          Math.max(max[0], x),
-          Math.max(max[1], y),
-          Math.max(max[2], z),
-        ];
-      },
-      [0, 0, 0]
-    );
+    // Initialize maxVals
+    const maxVals = [0, 0, 0];
+    visualizationData.forEach((item) => {
+      const { block_indices } = item;
+      // block_indices is something like [x, y, z]
+      if (Array.isArray(block_indices)) {
+        block_indices.forEach((val, idx) => {
+          if (idx < maxVals.length) {
+            maxVals[idx] = Math.max(maxVals[idx], val);
+          }
+        });
+      }
+    });
     setMaxValues(maxVals);
   };
 
-  // Update slider values for each axis
+  // 3. Memoized block lookup (key: "x:y:z" -> block data).
+  //    We assume globalData is an array of objects, each having { block_indices, ... } 
+  //    If you need to store more than just "operations", adapt accordingly.
+  const blockLookup = useMemo(() => {
+    if (!Array.isArray(globalData)) return {};
+
+    const lookup = {};
+    for (const item of globalData) {
+      // For example, item might be { block_indices: [x,y,z], operations: [...] }
+      const { block_indices, operations } = item;
+      if (block_indices && block_indices.length === 3) {
+        const [x, y, z] = block_indices;
+        lookup[`${x}:${y}:${z}`] = operations || [];
+      }
+    }
+    return lookup;
+  }, [globalData]);
+
+  // 4. Handle slider changes
   const handleSliderChange = (index, newValue) => {
     const newSliderValues = [...sliderValues];
     newSliderValues[index] = newValue;
     setSliderValues(newSliderValues);
   };
 
-  // Handle block click to set the selected block
+  // 5. Handle block click
   const handleBlockClick = (blockData) => {
     setCurrBlock(blockData);
   };
 
-  // Render the grid based on slider and max values
-  const renderGrid = () => {
-    if (!globalData || !globalData.ops || !globalData.ops.visualization_data) return null;
-
+  // 6. Create the array of xValues, yValues, zValues based on slider or full range
+  const [xValues, yValues, zValues] = useMemo(() => {
     const [xMax, yMax, zMax] = maxValues;
     const [xSlider, ySlider, zSlider] = sliderValues;
 
-    // Determine the range for each axis: if slider is -1, iterate over all values, otherwise use the slider value
-    const xValues = xSlider === -1 ? Array.from({ length: xMax + 1 }, (_, i) => i) : [xSlider];
-    const yValues = ySlider === -1 ? Array.from({ length: yMax + 1 }, (_, i) => i) : [ySlider];
-    const zValues = zSlider === -1 ? Array.from({ length: zMax + 1 }, (_, i) => i) : [zSlider];
+    const range = (start, end) => {
+      return Array.from({ length: end - start + 1 }, (_, i) => i + start);
+    };
 
-    return (
-      <Grid container spacing={1}>
-        {zValues.map((z) => (
-          yValues.map((y) => (
-            <Grid container item xs={12} spacing={1} key={`row-${y}-${z}`}>
-              {xValues.map((x) => {
-                const key = `${x}_${y}_${z}`;
-                const blockData = globalData.ops.visualization_data[key];
+    const xs = xSlider === -1 ? range(0, xMax) : [xSlider];
+    const ys = ySlider === -1 ? range(0, yMax) : [ySlider];
+    const zs = zSlider === -1 ? range(0, zMax) : [zSlider];
 
-                return (
-                  <Grid item key={key}>
-                    {blockData ? (
-                      <GridBlock
-                        data={{
-                          x,
-                          y,
-                          z,
-                          operations: blockData,
-                        }}
-                        onClick={handleBlockClick}
-                      />
-                    ) : (
-                      <Box
-                        sx={{
-                          width: 50,
-                          height: 50,
-                          bgcolor: 'grey.800',
-                          border: 1,
-                          borderColor: 'grey.700',
-                        }}
-                      />
-                    )}
-                  </Grid>
-                );
-              })}
-            </Grid>
-          ))
-        ))}
-      </Grid>
-    );
-  };
+    return [xs, ys, zs];
+  }, [maxValues, sliderValues]);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Grid Display Area */}
       <Box sx={{ flexGrow: 1, overflow: 'auto', mb: 2 }}>
-        {renderGrid()}
+ 
+        <MemoizedGrid
+          xValues={xValues}
+          yValues={yValues}
+          zValues={zValues}
+          blockLookup={blockLookup}
+          handleBlockClick={handleBlockClick}
+        />
       </Box>
 
       {/* Sliders for X, Y, Z axis */}
@@ -144,7 +194,9 @@ const GridViewComponent = ({ setCurrBlock }) => {
               valueLabelDisplay="auto"
             />
             <Typography variant="caption" sx={{ color: 'grey.500' }}>
-              {sliderValues[index] === -1 ? 'All values' : `Value: ${sliderValues[index]}`}
+              {sliderValues[index] === -1
+                ? 'All values'
+                : `Value: ${sliderValues[index]}`}
             </Typography>
           </Box>
         ))}
@@ -160,10 +212,18 @@ const GridViewComponent = ({ setCurrBlock }) => {
       </Button>
 
       {/* Info Dialog */}
-      <Dialog open={isInfoPopupOpen} onClose={() => setIsInfoPopupOpen(false)} maxWidth="md" fullWidth>
+      <Dialog
+        open={isInfoPopupOpen}
+        onClose={() => setIsInfoPopupOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle>Kernel Source Code</DialogTitle>
         <DialogContent>
-          <Typography component="pre" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+          <Typography
+            component="pre"
+            sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}
+          >
             {globalData?.kernel_src || 'No kernel source code available'}
           </Typography>
         </DialogContent>

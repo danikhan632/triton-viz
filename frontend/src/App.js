@@ -1,11 +1,11 @@
-// src/App.jsx
-import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Typography } from '@mui/material';
-import GridViewComponent from './components/GridViewComponent';
-import CodeViewerComponent from './components/CodeViewerComponent';
-import BlockView from './components/BlockView';
+import React, { useState, useCallback, Suspense, lazy } from 'react';
+import { Box, Typography, Button } from '@mui/material';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
-import isEqual from 'lodash/isEqual'; // Import lodash's isEqual for deep comparison
+import isEqual from 'lodash/isEqual';
+
+const GridViewComponent = lazy(() => import('./components/GridViewComponent'));
+const BlockView = lazy(() => import('./components/BlockView'));
+const CodeViewerComponent = lazy(() => import('./components/CodeViewerComponent'));
 
 const darkTheme = createTheme({
   palette: {
@@ -14,42 +14,38 @@ const darkTheme = createTheme({
 });
 
 const App = () => {
-  const [currBlock, setCurrBlock] = useState(null); // Current selected block
-  const [currLine, setCurrLine] = useState(null);   // Current highlighted line
-  const [codeLines, setCodeLines] = useState([]);   // Source code lines
-  const [loadingCode, setLoadingCode] = useState(true);
+  const [currBlock, setCurrBlock] = useState(null); 
+  const [currLine, setCurrLine] = useState(null);   
+  const [codeLines, setCodeLines] = useState([]);   
+  const [loadingCode, setLoadingCode] = useState(false);
   const [errorCode, setErrorCode] = useState(null);
-  const [processedData, setProcessedData] = useState(null); // Store processed data
+  const [processedData, setProcessedData] = useState(null); 
+  const [codeLoaded, setCodeLoaded] = useState(false); 
 
-  // Function to set processedData only if it's different
   const updateProcessedData = useCallback((newData) => {
     if (!isEqual(newData, processedData)) {
       setProcessedData(newData);
     }
   }, [processedData]);
 
-  // Fetch the source code when the app mounts
-  useEffect(() => {
-    const fetchCode = async () => {
-      try {
-        const response = await fetch('/get_src', {
-          method: 'GET',
-        });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const text = await response.text();
-        setCodeLines(text.split('\n'));
-        setLoadingCode(false);
-      } catch (error) {
-        console.error('Error fetching source code:', error);
-        setErrorCode('Failed to load source code.');
-        setLoadingCode(false);
+  const handleLoadCode = async () => {
+    setLoadingCode(true);
+    setErrorCode(null);
+    try {
+      const response = await fetch('/get_src', { method: 'GET' });
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    };
-
-    fetchCode();
-  }, []);
+      const text = await response.text();
+      setCodeLines(text.split('\n'));
+      setCodeLoaded(true);
+    } catch (error) {
+      console.error('Error fetching source code:', error);
+      setErrorCode('Failed to load source code.');
+    } finally {
+      setLoadingCode(false);
+    }
+  };
 
   return (
     <ThemeProvider theme={darkTheme}>
@@ -62,14 +58,22 @@ const App = () => {
           color: 'white',
         }}
       >
-        {/* Header */}
+        {}
         <Box sx={{ bgcolor: 'grey.800', p: 2 }}>
           <Typography variant="h4" align="center">
             GPU Profiling Tool
           </Typography>
+          {}
+          {!codeLoaded && (
+            <Box sx={{ textAlign: 'center', mt: 1 }}>
+              <Button variant="contained" onClick={handleLoadCode} disabled={loadingCode}>
+                {loadingCode ? 'Loading...' : 'Load Source'}
+              </Button>
+            </Box>
+          )}
         </Box>
 
-        {/* Main Content */}
+        {}
         <Box
           sx={{
             display: 'flex',
@@ -77,7 +81,7 @@ const App = () => {
             minHeight: 0,
           }}
         >
-          {/* Left Side: GridView or BlockView */}
+          {}
           <Box
             sx={{
               flex: '0 0 60%',
@@ -86,21 +90,23 @@ const App = () => {
               height: '100%',
             }}
           >
-            {currBlock === null ? (
-              <GridViewComponent setCurrBlock={setCurrBlock} />
-            ) : (
-              <BlockView
-                currBlock={currBlock}
-                setCurrBlock={setCurrBlock}
-                currLine={currLine}
-                codeLines={codeLines}
-                setProcessedData={updateProcessedData} // Use the callback
-                processedData={processedData} // Passed as a prop
-              />
-            )}
+            <Suspense fallback={<div style={{ color: 'white' }}>Loading grid...</div>}>
+              {currBlock === null ? (
+                <GridViewComponent setCurrBlock={setCurrBlock} />
+              ) : (
+                <BlockView
+                  currBlock={currBlock}
+                  setCurrBlock={setCurrBlock}
+                  currLine={currLine}
+                  codeLines={codeLines}
+                  setProcessedData={updateProcessedData}
+                  processedData={processedData}
+                />
+              )}
+            </Suspense>
           </Box>
 
-          {/* Right Side: CodeViewer */}
+          {}
           <Box
             sx={{
               flex: '0 0 40%',
@@ -112,15 +118,34 @@ const App = () => {
               overflow: 'auto',
             }}
           >
-            <CodeViewerComponent
-              currBlock={currBlock}
-              currLine={currLine}
-              setCurrLine={setCurrLine}
-              codeLines={codeLines}
-              loadingCode={loadingCode}
-              errorCode={errorCode}
-              processedData={processedData} // Passed as a prop
-            />
+            <Suspense fallback={<div style={{ color: 'white' }}>Loading code viewer...</div>}>
+              {codeLoaded && (
+                <CodeViewerComponent
+                  currBlock={currBlock}
+                  currLine={currLine}
+                  setCurrLine={setCurrLine}
+                  codeLines={codeLines}
+                  loadingCode={loadingCode}
+                  errorCode={errorCode}
+                  processedData={processedData}
+                />
+              )}
+            </Suspense>
+            {}
+            {!codeLoaded && !errorCode && (
+              <Box sx={{ p: 2 }}>
+                <Typography variant="body1">
+                  Source code not loaded. Click "Load Source" above.
+                </Typography>
+              </Box>
+            )}
+            {errorCode && (
+              <Box sx={{ p: 2 }}>
+                <Typography variant="body1" color="error">
+                  {errorCode}
+                </Typography>
+              </Box>
+            )}
           </Box>
         </Box>
       </Box>

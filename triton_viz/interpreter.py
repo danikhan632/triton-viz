@@ -146,7 +146,7 @@ def _grid_executor_call(self, *args_dev, **kwargs):
     UNDEFINED = object()
 
     # Variable to hold the current block indices
-    current_block_indices = (0, 0, 0)
+    current_block_indices = [0, 0, 0]
 
   
     filename = [None]
@@ -239,7 +239,7 @@ def _grid_executor_call(self, *args_dev, **kwargs):
                 for z in range(grid[2]):
                     interpreter_builder.set_grid_idx(x, y, z)
                     record_builder.append([x, y, z])
-                    current_block_indices = (x, y, z)
+                    current_block_indices = [x, y, z]
 
                     try:
                         sys.settrace(trace_func)
@@ -248,13 +248,11 @@ def _grid_executor_call(self, *args_dev, **kwargs):
                     finally:
                         sys.settrace(None)
 
-        print(record_builder)
+
         # Copy arguments back to propagate side-effects
         self._restore_args_dev(args_dev, args_hst, kwargs, kwargs_hst)
         _unpatch_lang()
     finally:
-        # print(data[24])
-        # sys.exit(0)
         return data
 
 
